@@ -25,6 +25,12 @@ Route::get('/', function () {
     ]);
 });
 
+
+Route::get('/payment', function () {
+    return Inertia::render('Payment', [
+    ]);
+});
+
 Route::get('/dashboard', function () {
     return Inertia::render('Dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
