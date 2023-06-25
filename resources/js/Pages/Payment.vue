@@ -2,19 +2,204 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import {Head} from '@inertiajs/vue3';
 import GuestLayout from "@/Layouts/GuestLayout.vue";
-import {ref} from "vue";
-
+import {onMounted, ref} from "vue";
+import {HashConnect, HashConnectTypes, MessageTypes} from 'hashconnect';
+import {
+    AccountBalanceQuery,
+    AccountId,
+    Client,
+    PrivateKey, TokenAssociateTransaction,
+    TokenCreateTransaction,
+    TokenMintTransaction,
+    TokenSupplyType,
+    TokenType, Transaction, TransactionId, TransferTransaction
+} from "@hashgraph/sdk";
+import axios, {create} from "axios";
 
 
 const isLoading = ref(false)
 const amount = ref(0)
 
+interface User  {
+    id: string,
+    name: string,
+    quantity: string
+    cid: string,
+    img: string
+}
+const props = defineProps<{
+    id: string,
+    user: User
+}>()
+const img = ref("")
+
 const form = ref({
-    amount: "",
-    cardNumber: "",
-    cvv: "",
-    expiry: "",
+    discord_id: "",
 })
+
+const random = ref("")
+const topicCached = ref("")
+let hashconnect;
+const delay = ms => new Promise(res => setTimeout(res, ms));
+const connectWallet = async () => {
+
+    img.value = "https://gateway.pinata.cloud/ipfs/"+props.user.img;
+    hashconnect = new HashConnect(true);
+     // hashconnect.clearConnectionsAndData();
+
+
+
+
+
+    let appMetadata: HashConnectTypes.AppMetadata = {
+        name: "dApp Example",
+        description: "An example hedera dApp",
+        icon: "https://absolute.url/to/icon.png"
+    }
+
+    hashconnect.foundExtensionEvent.on((data) => {
+        console.log("Found extension", data);
+        //this.availableExtension = data;
+    })
+
+    //This is fired when a wallet approves a pairing
+    hashconnect.pairingEvent.on((data) => {
+        console.log("Paired with wallet", data);
+
+        //this.pairingData = data.pairingData!;
+    });
+
+    let initData = await hashconnect.init(appMetadata, "testnet", false);
+    //This is fired when HashConnect loses connection, pairs successfully, or is starting connection
+    hashconnect.connectionStatusChangeEvent.on((state) => {
+        console.log("hashconnect state change event", state);
+        //this.state = state;
+    })
+
+    hashconnect.connectToLocalWallet();
+    random.value = initData.savedPairings[0].accountIds[0];
+    console.log(random)
+    topicCached.value = initData.topic;
+
+
+
+
+}
+
+const aliceId = AccountId.fromString(import.meta.env.VITE_ALICE_ACCOUNT_ID);
+const aliceKey = PrivateKey.fromString(import.meta.env.VITE_ALICE_PRIVATE_KEY);
+// const bobId = AccountId.fromString(import.meta.env.VITE_BOB_ACCOUNT_ID);
+// const bobKey = PrivateKey.fromString(import.meta.env.VITE_BOB_PRIVATE_KEY);
+
+async function makeBytes(trans: Transaction, signingAcctId: string) {
+    let transId = TransactionId.generate(signingAcctId)
+    trans.setTransactionId(transId);
+    trans.setNodeAccountIds([new AccountId(3)]);
+
+    await trans.freeze();
+
+    let transBytes = trans.toBytes();
+
+    return transBytes;
+}
+const client = Client.forTestnet().setOperator(aliceId, aliceKey);
+async function sendTransaction(trans: Uint8Array, acctToSign: string, return_trans: boolean = false, hideNfts: boolean = false, getRecord: boolean = false) {
+    const transaction: MessageTypes.Transaction = {
+        topic:topicCached.value,
+        byteArray: trans,
+
+        metadata: {
+            accountToSign: acctToSign,
+            returnTransaction: return_trans,
+            hideNft: hideNfts,
+            getRecord: getRecord
+        }
+    }
+
+    return await hashconnect.sendTransaction(topicCached.value, transaction)
+}
+async function createNonFungibleToken() {
+    isLoading.value = true;
+    // Part 1 - Create token
+    const bobId:string = random.value;
+    let nftCreate = await new TokenCreateTransaction()
+        .setTokenName("Alice NFT")
+        .setTokenSymbol("ANFT")
+        .setTokenType(TokenType.NonFungibleUnique)
+        .setDecimals(0)
+        .setInitialSupply(0)
+        .setTreasuryAccountId(aliceId)
+        .setSupplyType(TokenSupplyType.Finite)
+        .setMaxSupply(10)
+        .setSupplyKey(aliceKey)
+        .freezeWith(client);
+
+    let nftCreateTxSign = await nftCreate.sign(aliceKey);
+    let nftCreateSubmit = await nftCreateTxSign.execute(client);
+    let nftCreateRx = await nftCreateSubmit.getReceipt(client);
+    let tokenId = nftCreateRx.tokenId;
+    console.log(`- Created NFT with Token ID: ${tokenId} \n`);
+    // Part 2 - Mint token
+
+    // const CID = "ipfs://Qme5niYwb7b9dFimAgJwWYFUbxJ2rbM5MguV32Z4UuALmg/alice-nft-metadata.json";
+    const CID = "ipfs://"+props.user.cid;
+    console.log(CID)
+    // const CID = "http://localhost:8000/images/flower"
+    let mintTx = await new TokenMintTransaction()
+        .setTokenId(tokenId)
+        .setMetadata([Buffer.from(CID)])
+        .freezeWith(client);
+
+    let mintTxSign = await mintTx.sign(aliceKey);
+    let mintTxSubmit = await mintTxSign.execute(client);
+    let mintRx = await mintTxSubmit.getReceipt(client);
+    console.log(`- Created NFT ${tokenId} with serial: ${mintRx.serials[0].low} \n`);
+
+    // Part 3 - Associate token to user account
+    let trans = await new TokenAssociateTransaction();
+    let tokenIds: string[] = [];
+
+
+    try {
+
+        trans.setTokenIds([tokenId]);
+        trans.setAccountId(random.value);
+        let transBytes =  await makeBytes(trans, random.value);
+        let res = await sendTransaction(transBytes, random.value);
+        console.log(res)
+    }catch (e) {
+        console.log(e)
+    }
+
+    // Part 4 - Transfer token
+// balance check (before)
+    var balanceCheckTx = await new AccountBalanceQuery().setAccountId(aliceId).execute(client);
+    console.log(`- Alice balance: ${balanceCheckTx.tokens._map.get(tokenId.toString())} NFTs of ID ${tokenId}`);
+    var balanceCheckTx = await new AccountBalanceQuery().setAccountId(bobId).execute(client);
+    console.log(`- Bob's balance: ${balanceCheckTx.tokens._map.get(tokenId.toString())} NFTs of ID ${tokenId}`);
+
+    let tokenTransferTx = await new TransferTransaction().addNftTransfer(tokenId, 1, aliceId, bobId).freezeWith(client).sign(aliceKey);
+    let tokenTransferSubmit = await tokenTransferTx.execute(client);
+    let tokenTransferRx = await tokenTransferSubmit.getReceipt(client);
+    console.log(`\n- NFT transfer from Treasury to Alice: ${tokenTransferRx.status} \n`);
+
+    // balance check (after)
+    var balanceCheckTx = await new AccountBalanceQuery().setAccountId(aliceId).execute(client);
+    console.log(`- Alice balance: ${balanceCheckTx.tokens._map.get(tokenId.toString())} NFTs of ID ${tokenId}`);
+    var balanceCheckTx = await new AccountBalanceQuery().setAccountId(bobId).execute(client);
+    console.log(`- Bob's balance: ${balanceCheckTx.tokens._map.get(tokenId.toString())} NFTs of ID ${tokenId}`);
+
+    await axios.post(route('payment', {id: props.id}), {
+        'discord_id' : form.value.discord_id,
+        'nft_id' : tokenId?.toString(),
+        'user_id' : props.user.id,
+
+    })
+
+
+    window.location.href = route('success');
+
+}
 
 </script>
 
@@ -27,16 +212,27 @@ const form = ref({
             <div class="flex">
 
 
-
+<!--                <button class="bg-amber-400" @click="createNonFungibleToken">-->
+<!--                    Please Work-->
+<!--                </button>-->
 
             </div>
 
             <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+
+                {{random}}
+
+                <button v-show="!random" @click='connectWallet' type="button" class="mb-4 text-white bg-gradient-to-br from-purple-600 to-blue-500 hover:bg-gradient-to-bl focus:ring-4 focus:outline-none focus:ring-blue-300 dark:focus:ring-blue-800 font-medium rounded-lg text-sm px-5 py-2.5 text-center mr-2 ">Connect to HashPack</button>
+
+                <div class="text-2xl font-semibold">
+
+                     {{user.name}}
+                </div>
                 <div class="bg-white  shadow-sm sm:rounded-lg">
 
 
                     <div class="text-gray-600 tracking-widest" >
-                        Credits Available: ${{amount}}
+                        NFT Collection Left: {{user.quantity}}
                     </div>
                     <div class="flex align-center">
 
@@ -48,34 +244,35 @@ const form = ref({
 
 
                     <form class="text-left">
-                        <div class="mb-6">
-                            <label for="email" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Amount</label>
-                            <input v-model="form.amount" type="text" id="text"
-                                   class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 dark:shadow-sm-light"
-                                   placeholder="$0.00" required>
-                        </div>
-                        <div class="mb-6">
-                            <label for="password" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Card
-                                Number</label>
-                            <input v-model="form.cardNumber" type="text" id="text"
-                                   class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 dark:shadow-sm-light"
-                                   required>
-                        </div>
-                        <div class="mb-6">
-                            <label for="repeat-password"
-                                   class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">CVV</label>
-                            <input v-model="form.cvv" type="text" id="repeat-password"
-                                   class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 dark:shadow-sm-light"
-                                   required>
-                        </div>
 
                         <div class="mb-6">
-                            <label for="repeat-password"
-                                   class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Expiry</label>
-                            <input v-model="form.expiry" type="month" id="repeat-password"
+                            <label for="email" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Discord ID</label>
+                            <input v-model="form.discord_id" type="text" id="text"
                                    class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 dark:shadow-sm-light"
-                                   required>
+                                   placeholder="yuser-discord#22" required>
                         </div>
+<!--                        <div class="mb-6">-->
+<!--                            <label for="password" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Card-->
+<!--                                Number</label>-->
+<!--                            <input v-model="form.cardNumber" type="text" id="text"-->
+<!--                                   class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 dark:shadow-sm-light"-->
+<!--                                   required>-->
+<!--                        </div>-->
+<!--                        <div class="mb-6">-->
+<!--                            <label for="repeat-password"-->
+<!--                                   class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">CVV</label>-->
+<!--                            <input v-model="form.cvv" type="text" id="repeat-password"-->
+<!--                                   class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 dark:shadow-sm-light"-->
+<!--                                   required>-->
+<!--                        </div>-->
+
+<!--                        <div class="mb-6">-->
+<!--                            <label for="repeat-password"-->
+<!--                                   class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Expiry</label>-->
+<!--                            <input v-model="form.expiry" type="month" id="repeat-password"-->
+<!--                                   class="shadow-sm bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 dark:shadow-sm-light"-->
+<!--                                   required>-->
+<!--                        </div>-->
                         <div class="flex items-start mb-6">
                             <div class="flex items-center h-5">
                                 <input id="terms" type="checkbox" value=""
@@ -88,12 +285,12 @@ const form = ref({
                                     and conditions</a></label>
                         </div>
 
-                        <button type="button"
+                        <button type="button" @click="createNonFungibleToken" v-show="random"
                                 class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
                             <div class="flex">
 
                                 {{
-                                    isLoading ? "Paying ...  " : "Pay With Credit Card"
+                                    isLoading ? "Minting ...  " : "Mint Some NFT"
                                 }}
 
                                 <svg v-show="isLoading" aria-hidden="true"

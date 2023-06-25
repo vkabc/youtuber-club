@@ -6,6 +6,8 @@ import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
 import {Buffer} from 'buffer';
+import { create  } from "ipfs-http-client";
+
 
 import {
     AccountId,
@@ -23,6 +25,8 @@ const form = useForm({
     address: '',
     quantity: '',
     password_confirmation: '',
+    img:'',
+    cid:'',
 });
 
 const submit = () => {
@@ -100,18 +104,51 @@ async function createNonFungibleToken() {
 //
 }
 
-onMounted(() => {
+onMounted(async () => {
     createNonFungibleToken();
+
 });
+
+const onFileChange = async (e) => {
+    var files = e.target.files || e.dataTransfer.files;
+    form.image = files[0];
+
+    const projectId = "2RdKwLchtH2cLuMIom47RM6faTi";
+    const projectSecret = "69986387cffd4ac75f06bc640cace496";
+    const authorization = "Basic " + btoa(projectId + ":" + projectSecret);
+    const ipfs = create({
+        url: "https://ipfs.infura.io:5001/api/v0",
+        headers: {
+            authorization
+        }
+    })
+    const result = await ipfs.add(files[0]);
+    console.log(result)
+
+    form.img = result.path;
+    const result2 = await ipfs.add(`
+{
+    "name": "Alice NFT",
+    "description": "A token of appreciation to my local customers",
+    "image": "https://gateway.pinata.cloud/ipfs/${result.path}",
+    "discount-amount": "30%"
+}
+        `
+    );
+
+    form.cid = result2.path;
+    console.log(result2);
+
+};
 </script>
 
 <template>
     <GuestLayout>
         <Head title="Register" />
 
-        <form @submit.prevent="submit">
+        <form @submit.prevent="submit" enctype='multipart/form-data'>
             <div>
-                <InputLabel for="name" value="NFT Name" />
+                <InputLabel for="name" value="NFT Collection Name" />
 
                 <TextInput
                     id="name"
@@ -122,6 +159,12 @@ onMounted(() => {
                     autofocus
                     autocomplete="name"
                 />
+
+                <input type="hidden" name="ajisd" value="asdj"/>
+
+                <label class="block mb-2 text-sm font-medium text-gray-900 dark:text-white" for="file_input">Upload NFT Collection</label>
+                <input class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 dark:text-gray-400 focus:outline-none dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400" aria-describedby="file_input_help" id="file_input" type="file" name="test" v-on:change="onFileChange">
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-300" id="file_input_help">SVG, PNG, JPG or GIF (MAX. 800x400px).</p>
 
                 <InputError class="mt-2" :message="form.errors.name" />
             </div>

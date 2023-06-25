@@ -21,7 +21,11 @@
         "vue-tsc": "^1.2.0"
     },
     "dependencies": {
+        "@hashgraph/hedera-wallet-connect": "^0.1.0",
         "@hashgraph/sdk": "^2.27.0",
-        "buffer": "^6.0.3"
+        "buffer": "^6.0.3",
+        "hashconnect": "^0.2.4",
+        "ipfs-core": "^0.18.1",
+        "ipfs-http-client": "^60.0.1"
     }
 }

@@ -1,6 +1,9 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Models\Nft;
+use App\Models\User;
+use GuzzleHttp\Client;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -26,10 +29,30 @@ Route::get('/', function () {
 });
 
 
-Route::get('/payment', function () {
+Route::get('/payment/{id}', function (int $id) {
+    $user = User::find($id);
     return Inertia::render('Payment', [
+        'user' => $user,
+        'id' => $id,
     ]);
 });
+
+Route::get('/success', function () {
+    return Inertia::render('Success', [
+    ]);
+})->name('success');
+
+
+Route::post('/payment/{id}', function (int $id) {
+    $user = User::find($id);
+    NFT::create([
+        'discord_id' => request()->discord_id,
+        'nft_id' => request()->nft_id,
+        'user_id' => request()->user_id,
+    ]);
+    return Inertia::render('Success', [
+    ]);
+})->name('payment');
 
 Route::get('/dashboard', function () {
     return Inertia::render('Dashboard');
