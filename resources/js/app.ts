@@ -6,6 +6,8 @@ import { createInertiaApp } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { ZiggyVue } from '../../vendor/tightenco/ziggy/dist/vue.m';
 
+import { Buffer  } from 'buffer'
+window.Buffer = Buffer;
 const appName = window.document.getElementsByTagName('title')[0]?.innerText || 'Laravel';
 window.global ||= window;
 

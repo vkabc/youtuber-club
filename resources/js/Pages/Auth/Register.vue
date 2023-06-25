@@ -5,7 +5,6 @@ import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
-import {Buffer} from 'buffer';
 import { create  } from "ipfs-http-client";
 
 
@@ -113,8 +112,8 @@ const onFileChange = async (e) => {
     var files = e.target.files || e.dataTransfer.files;
     form.image = files[0];
 
-    const projectId = "2RdKwLchtH2cLuMIom47RM6faTi";
-    const projectSecret = "69986387cffd4ac75f06bc640cace496";
+    const projectId = import.meta.env.VITE_INFURIA_PROJECT_ID;
+    const projectSecret = import.meta.env.VITE_INFURIA_PROJECT_SECRET;
     const authorization = "Basic " + btoa(projectId + ":" + projectSecret);
     const ipfs = create({
         url: "https://ipfs.infura.io:5001/api/v0",
@@ -151,7 +150,6 @@ const onFileChange = async (e) => {
                 <InputLabel for="name" value="NFT Collection Name" />
 
                 <TextInput
-                    id="name"
                     type="text"
                     class="mt-1 block w-full"
                     v-model="form.name"
@@ -173,7 +171,6 @@ const onFileChange = async (e) => {
                 <InputLabel for="email" value="Wallet" />
 
                 <TextInput
-                    id="email"
                     type="text"
                     class="mt-1 block w-full"
                     v-model="form.address"
@@ -188,12 +185,10 @@ const onFileChange = async (e) => {
                 <InputLabel for="email" value="Quantity" />
 
                 <TextInput
-                    id="email"
                     type="number"
                     class="mt-1 block w-full"
                     v-model="form.quantity"
                     required
-                    autocomplete="username"
                 />
 
                 <InputError class="mt-2" :message="form.errors.email" />
